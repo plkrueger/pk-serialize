@@ -16,4 +16,5 @@ that returns a list of slot-names that should not be dumped (all others WILL be 
 Note that when instances are restored, the initialize-instance methods for that class will NOT be run.  So if anything additional needs to be done to set values for instance slots that are not dumped and restored, that should be done after the restore is completed.
 
 You can also put individual symbol names into the list and the symbol-value of that symbol will be saved and restored when the data is re-loaded.
- 
+
+Test functions at the end of the source code can be used as an example of how to dump and restore lisp data.
