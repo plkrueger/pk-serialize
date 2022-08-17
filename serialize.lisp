@@ -58,7 +58,7 @@ when the data is re-loaded.
 |#
 
 (defpackage :pk-serialize
-  (:use :ccl :common-lisp)
+  (:use :common-lisp)
   (:export
    dump-to-file
    restore-from-file
@@ -76,13 +76,13 @@ when the data is re-loaded.
 ;;; utility methods
 
 (defmethod class-instance-slots ((cl class))
-  (remove :class (class-slots cl) :key #'slot-definition-allocation))
+  (remove :class (c2mop::class-slots cl) :key #'c2mop::slot-definition-allocation))
 
 (defmethod class-class-slots ((cl class))
-  (remove :instance (class-slots cl) :key #'slot-definition-allocation))
+  (remove :instance (c2mop::class-slots cl) :key #'c2mop::slot-definition-allocation))
 
 (defmethod all-superclasses ((cl class))
-  (remove-duplicates (cons cl (mapcan #'all-superclasses (class-direct-superclasses cl)))))
+  (remove-duplicates (cons cl (mapcan #'all-superclasses (c2mop::class-direct-superclasses cl)))))
 
 (defun pure-list-p (lst)
   (cond 
@@ -114,7 +114,12 @@ when the data is re-loaded.
   (name-with-package (class-name (class-of obj))))
 
 (defmethod constructor-name-with-package ((obj function))
-  (format nil "#'~a" (name-with-package (function-name obj))))
+  (flet ((fn (func)
+           (multiple-value-bind (x y name)
+                                (function-lambda-expression func)
+             (declare (ignore x y))
+             name)))
+    (format nil "#'~a" (name-with-package (fn obj)))))
 
 (defmethod constructor-name ((obj structure-object))
   (let ((cname (class-name (class-of obj))))
@@ -220,7 +225,12 @@ when the data is re-loaded.
     ;; no additional init will be required
     (format nil "(:path ~s (:host ~s :device ~s :directory ~s :name ~s :type ~s :version ~s))"
             (get-ref obj) 
-            (pathname-host obj)
+            (let ((host (pathname-host obj)))
+              ;; in some lisps, host can be an proprietary object with an unreadable printed representaation
+              ;; For now just leave :host nil to use a default, which is typically how it was created in the first place
+              (if (member (type-of host) '(symbol string))
+                  host
+                  nil))
             (pathname-device obj)
             (pathname-directory obj)
             (pathname-name obj)
@@ -270,7 +280,7 @@ when the data is re-loaded.
 
   (defmethod init-form-for ((obj structure-object)) 
     (let* ((obj-class (class-of obj))
-           (slot-names (mapcar #'slot-definition-name (class-slots obj-class)))
+           (slot-names (mapcar #'c2mop::slot-definition-name (c2mop::class-slots obj-class)))
            (vals (mapcar #'(lambda (sl)
                              (val-for-init (slot-value obj sl)))
                          slot-names)))
@@ -278,8 +288,8 @@ when the data is re-loaded.
 
   (defmethod init-form-for ((obj class))
     ;; This will initialize any slots with "allocation: class" for this class
-    (let* ((slot-names (mapcar #'slot-definition-name (class-class-slots obj)))
-           (proto (class-prototype obj))
+    (let* ((slot-names (mapcar #'c2mop::slot-definition-name (class-class-slots obj)))
+           (proto (c2mop::class-prototype obj))
            (slot-vals (mapcar #'(lambda (s)
                                   (val-for-init (slot-value proto s)))
                               slot-names)))
@@ -289,7 +299,7 @@ when the data is re-loaded.
 
   (defmethod init-form-for ((obj standard-object)) 
     (let* ((instance-slots (class-instance-slots (class-of obj)))
-           (slot-names (mapcar #'ccl::slot-definition-name 
+           (slot-names (mapcar #'c2mop::slot-definition-name 
                                (or (intersection (slots-to-dump obj) instance-slots)
                                    (set-difference instance-slots (slots-to-not-dump obj) :test #'string-equal))))
            (slot-vals (mapcar #'(lambda (s)
@@ -376,9 +386,10 @@ when the data is re-loaded.
     (cons (replace-refs-in (car obj))
           (replace-refs-in (cdr obj))))
 
-  (defmethod replace-refs-in ((obj keyword))
+  (defmethod replace-refs-in ((obj symbol))
     (let ((sname (symbol-name obj)))
-      (if (and (> (length sname) 3)
+      (if (and (keywordp obj)
+               (> (length sname) 3)
                (string= sname "REF" :start1 0 :end1 3))
           (gethash obj *ref-hash*)
           obj)))
@@ -387,7 +398,7 @@ when the data is re-loaded.
      (apply #'set-slot-vals obj args))
 
   (defmethod init ((obj class) &rest args)
-     (apply #'set-slot-vals (class-prototype obj) args))
+     (apply #'set-slot-vals (c2mop::class-prototype obj) args))
 
   (defmethod init ((obj standard-object) &rest args)
      (apply #'set-slot-vals obj args))
@@ -553,8 +564,11 @@ when the data is re-loaded.
          
 
 (defun ser-test ()
+  ;; in some lisps you need to make an instance of a class before you can access its class-prototype
+  ;; so just create one to avoid the problem
+  (make-instance 'ser-test-class)
   ;; Re-running ser-test can leave old values so get rid of them
-  (setf (class-alloc-slot (class-prototype (find-class 'ser-test-class))) nil)
+  (setf (class-alloc-slot (c2mop::class-prototype (find-class 'ser-test-class))) nil)
 
   ;; make a couple of instances of ser-test-class and set some slot values
   (let ((mismatches 0)

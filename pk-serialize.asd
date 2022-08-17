@@ -1,4 +1,5 @@
 (asdf:defsystem #:pk-serialize
+  :depends-on (#:closer-mop)
   :name "pk-serialize"
   :author "plkrueger <plkrueger@comcast.net>"
   :maintainer "plkrueger"
